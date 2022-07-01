@@ -1084,13 +1084,13 @@ function Read-DmarcPolicy {
         # Check policy for errors and best practice
         if ($PolicyValues -notcontains $DmarcAnalysis.Policy) { $ValidationFails.Add("The policy must be one of the following: none, quarantine or reject. Found $($Tag.Value)") | Out-Null }
         if ($DmarcAnalysis.Policy -eq 'reject') { $ValidationPasses.Add('The domain policy is set to reject, this is best practice.') | Out-Null }
-        if ($DmarcAnalysis.Policy -eq 'quarantine') { $ValidationWarns.Add('The domain policy is only partially enforced with quarantine.') | Out-Null }
+        if ($DmarcAnalysis.Policy -eq 'quarantine') { $ValidationWarns.Add('The domain policy is only partially enforced with quarantine. Set this to reject to be fully compliant.') | Out-Null }
         if ($DmarcAnalysis.Policy -eq 'none') { $ValidationFails.Add('The domain policy is not being enforced.') | Out-Null }
 
         # Check subdomain policy
         if ($PolicyValues -notcontains $DmarcAnalysis.SubdomainPolicy) { $ValidationFails.Add("The subdomain policy must be one of the following: none, quarantine or reject. Found $($DmarcAnalysis.SubdomainPolicy)") | Out-Null }
         if ($DmarcAnalysis.SubdomainPolicy -eq 'reject') { $ValidationPasses.Add('The subdomain policy is set to reject, this is best practice.') | Out-Null }
-        if ($DmarcAnalysis.SubdomainPolicy -eq 'quarantine') { $ValidationWarns.Add('The subdomain policy is only partially enforced with quarantine.') | Out-Null }
+        if ($DmarcAnalysis.SubdomainPolicy -eq 'quarantine') { $ValidationWarns.Add('The subdomain policy is only partially enforced with quarantine. Set this to reject to be fully compliant.') | Out-Null }
         if ($DmarcAnalysis.SubdomainPolicy -eq 'none') { $ValidationFails.Add('The subdomain policy is not being enforced.') | Out-Null }
 
         # Check percentage - validate range and ensure 100%
@@ -1170,37 +1170,22 @@ function Read-DkimRecord {
     $ValidationWarns = [System.Collections.Generic.List[string]]::new()
     $ValidationFails = [System.Collections.Generic.List[string]]::new()
 
-    if (($Selectors | Measure-Object | Select-Object -ExpandProperty Count) -eq 0) {
-        # MX lookup, check for defined selectors
-        try {
-            $MXRecord = Read-MXRecord -Domain $Domain
-            foreach ($Selector in $MXRecord.Selectors) {
-                $Selectors.Add($Selector) | Out-Null
-            }
-            $DkimAnalysis.MailProvider = $MXRecord.MailProvider
-            if ($MXRecord.MailProvider.PSObject.Properties.Name -contains 'MinimumSelectorPass') {
-                $MinimumSelectorPass = $MXRecord.MailProvider.MinimumSelectorPass
-            }
-            $DkimAnalysis.Selectors = $Selectors
+    # MX lookup, check for defined selectors
+    try {
+        $MXRecord = Read-MXRecord -Domain $Domain
+        foreach ($Selector in $MXRecord.Selectors) {
+            $Selectors.Add($Selector) | Out-Null
         }
-        catch {}
-        
-        # Explicitly defined DKIM selectors
-        if (Test-Path 'Config\DkimSelectors') {
-            try {
-                Get-ChildItem 'Config\DkimSelectors' -Filter "$($Domain).json" -ErrorAction Stop | ForEach-Object {
-                    try {
-                        $CustomSelectors = Get-Content $_ | ConvertFrom-Json
-                        foreach ($Selector in $CustomSelectors) {
-                            $Selectors.Add($Selector) | Out-Null
-                        }
-                    } 
-                    catch {}
-                }
-            }
-            catch {}
+        $DkimAnalysis.MailProvider = $MXRecord.MailProvider
+        if ($MXRecord.MailProvider.PSObject.Properties.Name -contains 'MinimumSelectorPass') {
+            $MinimumSelectorPass = $MXRecord.MailProvider.MinimumSelectorPass
         }
+        $DkimAnalysis.Selectors = $Selectors
     }
+    catch {}
+
+    # Get unique selectors
+    $Selectors = $Selectors | Sort-Object -Unique
     
     if (($Selectors | Measure-Object | Select-Object -ExpandProperty Count) -gt 0) {
         foreach ($Selector in $Selectors) {
@@ -1469,7 +1454,7 @@ function Read-WhoisRecord {
         foreach ($RegistrarProp in $RegistrarProps) {
             if ($Results.Contains($RegistrarProp)) {
                 $Results._Registrar = $Results.$RegistrarProp
-                if($Results.$RegistrarProp -eq 'Registrar') {
+                if ($Results.$RegistrarProp -eq 'Registrar') {
                     break  # Means we always favour Registrar if it exists, or keep looking
                 }
             }
@@ -2261,7 +2246,7 @@ function Read-TlsRptRecord {
     Resolve and validate TLSRPT record
     
     .DESCRIPTION
-    Query domain for DMARC policy (_smtp._tls.domain.com) and parse results. Record is checked for issues.
+    Query domain for TLSRPT record (_smtp._tls.domain.com) and parse results. Record is checked for issues.
     
     .PARAMETER Domain
     Domain to process TLSRPT record
